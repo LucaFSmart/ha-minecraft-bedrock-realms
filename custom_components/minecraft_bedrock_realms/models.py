@@ -22,7 +22,7 @@ def _parse_iso(value: str) -> datetime:
 
 @dataclass(slots=True)
 class DeviceCodeInfo:
-    device_code: str
+    device_code: str = field(repr=False)
     user_code: str
     verification_uri: str
     expires_in: int
@@ -53,8 +53,8 @@ class DeviceCodeInfo:
 
 @dataclass(slots=True)
 class OAuthToken:
-    access_token: str
-    refresh_token: str
+    access_token: str = field(repr=False)
+    refresh_token: str = field(repr=False)
     expires_in: int
     obtained_at: datetime = field(default_factory=_utcnow)
 
@@ -93,8 +93,8 @@ class OAuthToken:
 
 @dataclass(slots=True)
 class XboxToken:
-    token: str
-    userhash: str
+    token: str = field(repr=False)
+    userhash: str = field(repr=False)
     xuid: str
     gamertag: str
     not_after: datetime

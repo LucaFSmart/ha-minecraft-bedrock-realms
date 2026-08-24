@@ -25,8 +25,6 @@ from custom_components.minecraft_bedrock_realms.realms_api import RealmsAPI
 from custom_components.minecraft_bedrock_realms.xbox_profile import XboxProfileClient
 from poc.token_cache import load_token, save_token
 
-_LOGGER = logging.getLogger("realm_cli")
-
 
 async def _authenticate(session: aiohttp.ClientSession, client_id: str | None) -> tuple[str, str]:
     """Runs (or resumes) the auth chain. Returns (realms_auth_header, xbox_live_auth_header)."""

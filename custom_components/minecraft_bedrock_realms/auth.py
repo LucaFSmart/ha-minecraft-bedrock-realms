@@ -1,6 +1,7 @@
 """Microsoft device-code -> Xbox Live user token -> XSTS token authentication chain."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -47,8 +48,10 @@ class MicrosoftAuth:
             ) as resp:
                 data = await resp.json(content_type=None)
                 if resp.status != 200:
+                    detail = data.get("error_description") or data.get("error") or ""
                     raise AuthenticationError(
                         f"Failed to request device code: HTTP {resp.status}"
+                        + (f" — {detail}" if detail else "")
                     )
         except (aiohttp.ClientError, TimeoutError) as err:
             raise AuthenticationError(f"Network error: {err}") from err
@@ -56,8 +59,6 @@ class MicrosoftAuth:
         return DeviceCodeInfo.from_response(data)
 
     async def poll_for_token(self, device_code_info: DeviceCodeInfo) -> OAuthToken:
-        import asyncio
-
         interval = device_code_info.interval
         while True:
             await asyncio.sleep(interval)

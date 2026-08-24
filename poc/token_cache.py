@@ -21,7 +21,7 @@ def load_token(path: Path = DEFAULT_CACHE_PATH) -> OAuthToken | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         return OAuthToken.from_dict(data)
-    except (json.JSONDecodeError, KeyError, ValueError):
+    except (json.JSONDecodeError, KeyError, ValueError, TypeError):
         return None
 
 

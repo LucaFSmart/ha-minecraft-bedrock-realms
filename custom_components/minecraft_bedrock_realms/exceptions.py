@@ -65,5 +65,9 @@ class RealmsRateLimitedError(RealmsAPIError):
 
     def __init__(self, retry_after: float | None) -> None:
         self.retry_after = retry_after
-        detail = f"rate limited, retry after {retry_after}s" if retry_after else "rate limited"
+        detail = (
+            f"rate limited, retry after {retry_after}s"
+            if retry_after is not None
+            else "rate limited"
+        )
         super().__init__(429, detail)
