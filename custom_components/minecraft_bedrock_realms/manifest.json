@@ -1,0 +1,13 @@
+{
+  "domain": "minecraft_bedrock_realms",
+  "name": "Minecraft Bedrock Realms",
+  "version": "0.1.0",
+  "codeowners": ["@LucaFSmart"],
+  "config_flow": true,
+  "documentation": "https://github.com/LucaFSmart/ha-minecraft-bedrock-realms",
+  "issue_tracker": "https://github.com/LucaFSmart/ha-minecraft-bedrock-realms/issues",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "requirements": [],
+  "dependencies": []
+}
