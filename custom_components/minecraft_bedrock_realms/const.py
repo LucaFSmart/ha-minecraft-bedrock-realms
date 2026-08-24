@@ -54,3 +54,23 @@ REALMS_USER_AGENT = "MCPE/UWP"
 XBOX_PROFILE_CONTRACT_VERSION = "3"
 
 REQUEST_TIMEOUT_SECONDS = 15
+
+# --- Home Assistant integration constants ---
+from homeassistant.const import Platform  # noqa: E402
+
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
+
+CONF_CLIENT_ID = "client_id"
+CONF_OAUTH_TOKEN = "oauth_token"
+CONF_REALM_IDS = "realm_ids"
+CONF_UPDATE_INTERVAL = "update_interval"
+CONF_TRACKED_GAMERTAGS = "tracked_gamertags"
+CONF_ENABLE_EVENTS = "enable_events"
+
+DEFAULT_UPDATE_INTERVAL = 60
+UPDATE_INTERVAL_OPTIONS = [15, 30, 60, 120, 300]
+
+# Event names are spelled out in full (not DOMAIN-prefixed) to match the
+# project's specified event contract exactly.
+EVENT_PLAYER_JOINED = "minecraft_realm_player_joined"
+EVENT_PLAYER_LEFT = "minecraft_realm_player_left"
