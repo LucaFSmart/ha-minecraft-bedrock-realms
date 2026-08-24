@@ -48,10 +48,12 @@ class MicrosoftAuth:
             ) as resp:
                 data = await resp.json(content_type=None)
                 if resp.status != 200:
-                    detail = data.get("error_description") or data.get("error") or ""
+                    detail = ""
+                    if isinstance(data, dict):
+                        detail = data.get("error_description") or data.get("error") or ""
                     raise AuthenticationError(
                         f"Failed to request device code: HTTP {resp.status}"
-                        + (f" — {detail}" if detail else "")
+                        + (f" - {detail}" if detail else "")
                     )
         except (aiohttp.ClientError, TimeoutError) as err:
             raise AuthenticationError(f"Network error: {err}") from err

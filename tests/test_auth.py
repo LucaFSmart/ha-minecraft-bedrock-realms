@@ -12,6 +12,7 @@ from custom_components.minecraft_bedrock_realms.const import (
     XBL_XSTS_AUTH_URL,
 )
 from custom_components.minecraft_bedrock_realms.exceptions import (
+    AuthenticationError,
     DeviceCodeExpiredError,
     XboxLiveError,
 )
@@ -37,6 +38,37 @@ async def test_request_device_code_returns_parsed_info():
 
     assert info.user_code == "ABCD1234"
     assert info.interval == 5
+
+
+async def test_request_device_code_raises_authentication_error_on_non_dict_body_string():
+    with aioresponses() as mocked:
+        mocked.post(
+            MS_DEVICE_CODE_URL,
+            status=503,
+            payload="Service Unavailable",
+        )
+        async with aiohttp.ClientSession() as session:
+            auth = MicrosoftAuth(session)
+            with pytest.raises(AuthenticationError):
+                await auth.request_device_code()
+
+
+async def test_request_device_code_raises_authentication_error_on_non_dict_body_null():
+    with aioresponses() as mocked:
+        # payload=None would leave aioresponses' response body empty (it only
+        # serializes payload when it is `is not None`), so use body="null"
+        # directly to get a literal JSON null - a non-dict body a misbehaving
+        # proxy could plausibly return.
+        mocked.post(
+            MS_DEVICE_CODE_URL,
+            status=500,
+            body="null",
+            content_type="application/json",
+        )
+        async with aiohttp.ClientSession() as session:
+            auth = MicrosoftAuth(session)
+            with pytest.raises(AuthenticationError):
+                await auth.request_device_code()
 
 
 async def test_poll_for_token_retries_on_authorization_pending_then_succeeds():
