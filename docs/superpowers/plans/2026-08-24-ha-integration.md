@@ -859,6 +859,18 @@ git -c user.name="LucaFSmart" -c user.email="197988000+LucaFSmart@users.noreply.
 
 ## Task 5: `__init__.py` (setup/unload)
 
+> **Execution order note (discovered during implementation):** `manifest.json` (Task 1) declares
+> `"config_flow": true`, which makes Home Assistant's `config_entries` machinery require
+> `config_flow.py` to exist and be importable before it will run `async_setup_entry` for *any*
+> config entry — including in this task's own tests, which drive setup via
+> `hass.config_entries.async_setup(entry.entry_id)`. Since `config_flow.py` doesn't exist until
+> Tasks 6-7, **this task must actually be executed after Tasks 6 and 7**, even though it's
+> numbered earlier in this document (task numbering reflects logical grouping, not literal
+> execution order here). `config_flow.py` has no dependency on `__init__.py` or `coordinator.py`,
+> so doing Tasks 6-7 first is safe and requires no changes to their content. Do not try to make
+> this task's tests pass before Tasks 6-7 land — that's the correct, expected behavior, not a bug
+> to route around with a placeholder `config_flow.py`.
+
 **Files:**
 - Create: `custom_components/minecraft_bedrock_realms/__init__.py` (this replaces the Phase 3 placeholder — read it first, its docstring is being superseded)
 - Test: `tests/test_init.py`
