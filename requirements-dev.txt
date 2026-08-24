@@ -1,6 +1,12 @@
-aiohttp>=3.10,<3.14  # aioresponses 0.7.9 breaks on aiohttp>=3.14.0 (ClientResponse requires stream_writer kwarg)
+aiohttp==3.14.3  # pinned exactly: homeassistant==2026.8.3 hard-pins this version
 pytest>=8.3
 pytest-asyncio>=0.24
-aioresponses>=0.7.6
+# aioresponses 0.7.9 (latest PyPI release) breaks on aiohttp>=3.14.0 (ClientResponse requires a
+# stream_writer kwarg it doesn't pass). Using an unmerged upstream fix branch until
+# https://github.com/pnuckowski/aioresponses/pull/288 is released - dev/test-only dependency,
+# never shipped to end users (see manifest.json's empty "requirements").
+git+https://github.com/agners/aioresponses.git@fix-aiohttp-3.14-stream-writer#egg=aioresponses
 ruff>=0.7
 mypy>=1.13
+homeassistant==2026.8.3
+pytest-homeassistant-custom-component==0.13.357  # NOT calendar-versioned like HA itself; this is its latest release, pinned to homeassistant==2026.8.3

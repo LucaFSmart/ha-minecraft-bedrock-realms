@@ -19,6 +19,58 @@
 - Git commits use author `LucaFSmart <197988000+LucaFSmart@users.noreply.github.com>` via `git -c user.name=... -c user.email=... commit ...` — never edit git config.
 - `custom_components/minecraft_bedrock_realms/{auth,realms_api,xbox_profile,models,exceptions,const}.py` already exist from Phase 3 and are already unit-tested; this plan extends them (adds new fields/methods where noted) but must not change their existing tested public signatures.
 
+### Windows test environment (already set up - read before running any test in this plan)
+
+The dev machine this plan is executed on is Windows, where Home Assistant's own test harness does
+not work out of the box. This was discovered and fixed once, before Task 3, so every task from
+here on can just run tests normally - but the fix depends on machine state that isn't committed to
+git (it lives in `.venv/`, which is git-ignored) and must exist for tests to pass:
+
+1. **A dedicated venv at `.venv/`, created with `python3` (resolves to Python 3.14.6 on this
+   machine) — not the plain `python`/`pip` commands, which resolve to an unrelated, older Python
+   3.11 environment.** Every command in every task (`pytest`, `pip`, `ruff`, `mypy`) must be run as
+   `.venv/Scripts/python -m <tool>`. If `.venv/` doesn't exist: `python3 -m venv .venv`, then
+   `.venv/Scripts/python -m pip install -r requirements-dev.txt`.
+2. **`requirements-dev.txt` pins `aiohttp==3.14.3` exactly** (forced by `homeassistant==2026.8.3`,
+   which hard-pins it) **and installs `aioresponses` from an unmerged upstream git branch**
+   (`agners/aioresponses@fix-aiohttp-3.14-stream-writer`) because the latest PyPI release
+   (0.7.9) doesn't support aiohttp 3.14's new required `stream_writer` kwarg on `ClientResponse`.
+   Both are already correctly pinned in the committed `requirements-dev.txt` — don't "fix" them
+   back to a plain PyPI `aioresponses` version or a `<3.14` aiohttp bound.
+3. **Three small stub files must exist in `.venv/Lib/site-packages/`** (created once, not part of
+   any git commit, must be recreated if `.venv/` is ever deleted and rebuilt):
+   - `fcntl.py` — `homeassistant/runner.py` does `import fcntl` at module level (a POSIX-only
+     stdlib module, absent on Windows) purely to take an advisory single-instance lock that no
+     unit test in this project ever exercises. Stub: module-level `LOCK_EX = 2`, `LOCK_SH = 1`,
+     `LOCK_UN = 8`, `LOCK_NB = 4` constants, plus no-op `flock(fd, operation)` and
+     `lockf(fd, operation, length=0, start=0, whence=0)` functions.
+   - `resource.py` — same situation, `homeassistant/util/resource.py` does `import resource`
+     (also POSIX-only) to read/set the process's open-file-descriptor limit, again never called
+     during unit tests. Stub: `RLIMIT_NOFILE = 7` constant, `getrlimit(resource_id)` returning
+     `(1024, 4096)`, no-op `setrlimit(resource_id, limits)`.
+   - `sitecustomize.py` — the real fix, auto-loaded by Python's `site` module at interpreter
+     startup (before pytest or any plugin runs). Root cause: Windows has no real
+     `socket.socketpair()`, so CPython falls back to building a loopback TCP pair via
+     `socket.socket(...)` - which is exactly what asyncio's event loop uses internally for its
+     self-wakeup pipe, on every async test. `pytest-homeassistant-custom-component` (via
+     `pytest_socket`) replaces `socket.socket` with a guard that only allows AF_UNIX-family
+     sockets through (correct on Linux/macOS, where the real self-pipe *is* AF_UNIX); on Windows
+     the fallback is AF_INET, so the guard blocks it and every async test fails at event-loop
+     creation with `HASocketBlockedError`, before any test code or mocked HTTP call runs. Fix:
+     capture the pristine, unpatched `socket.socket` class at interpreter startup (before any test
+     plugin can monkeypatch it) and replace `socket.socketpair`/`socket._fallback_socketpair` with
+     a version that builds the loopback pair entirely from that pristine class - including for the
+     `accept()`-returned peer socket, built via the class's private `_accept()` plus
+     `_real_socket_class(family, type, proto, fileno=fd)` rather than calling `.accept()` itself
+     (which would internally reconstruct the peer socket via the *patched* module-level `socket`
+     name and hit the guard anyway). This has no effect on real test behavior - every actual HTTP
+     call in every test is still mocked via `aioresponses`, and `pytest_socket` still blocks any
+     other real `socket.socket(...)` normally.
+
+   Verify all three are working with:
+   `.venv/Scripts/python -m pytest -q` — Phase 3's existing 32 tests must all still pass, with no
+   `ModuleNotFoundError` or `HASocketBlockedError`.
+
 ---
 
 ## Task 1: `manifest.json` and `hacs.json`
@@ -63,7 +115,7 @@ Note: `requirements` is empty because this integration only depends on `aiohttp`
 
 - [ ] **Step 3: Verify both are valid JSON**
 
-Run: `python -c "import json; json.load(open('custom_components/minecraft_bedrock_realms/manifest.json')); json.load(open('hacs.json')); print('valid')"`
+Run: `.venv/Scripts/python -c "import json; json.load(open('custom_components/minecraft_bedrock_realms/manifest.json')); json.load(open('hacs.json')); print('valid')"`
 Expected: `valid`
 
 - [ ] **Step 4: Commit**
@@ -116,8 +168,11 @@ EVENT_PLAYER_LEFT = "minecraft_realm_player_left"
 
 - [ ] **Step 2: Verify it imports cleanly**
 
-Run: `python -c "from custom_components.minecraft_bedrock_realms.const import PLATFORMS, EVENT_PLAYER_JOINED; print(PLATFORMS, EVENT_PLAYER_JOINED)"`
-Expected: prints the platform list and `minecraft_realm_player_joined` with no import error. (This requires `homeassistant` to be importable — installed in Task 3 below alongside the test dependency; if it's not yet installed when you run this verification, install it first with `pip install homeassistant` or skip straight to Task 3, which installs the full test toolchain.)
+Run: `.venv/Scripts/python -c "from custom_components.minecraft_bedrock_realms.const import PLATFORMS, EVENT_PLAYER_JOINED; print(PLATFORMS, EVENT_PLAYER_JOINED)"`
+Expected: prints the platform list and `minecraft_realm_player_joined` with no import error. This
+requires `homeassistant` to be importable in the project's `.venv/` (created and populated in
+Task 3) — if `.venv/` doesn't exist yet when you reach this step, skip straight to Task 3, which
+creates it and installs the full test toolchain, then come back and verify.
 
 - [ ] **Step 3: Commit**
 
@@ -132,7 +187,7 @@ git -c user.name="LucaFSmart" -c user.email="197988000+LucaFSmart@users.noreply.
 ## Task 3: Test toolchain, coordinator/tracked-player models, and gamertag-to-XUID lookup
 
 **Files:**
-- Modify: `requirements-dev.txt`
+- Verify only (already modified as infrastructure setup, see Step 1): `requirements-dev.txt`
 - Modify: `custom_components/minecraft_bedrock_realms/xbox_profile.py`
 - Modify: `custom_components/minecraft_bedrock_realms/models.py`
 - Test: `tests/test_xbox_profile.py` (extend)
@@ -143,17 +198,25 @@ git -c user.name="LucaFSmart" -c user.email="197988000+LucaFSmart@users.noreply.
 - Consumes: `custom_components.minecraft_bedrock_realms.exceptions.RealmsAPIError` (existing).
 - Produces: `XboxProfileClient.get_xuid(gamertag: str) -> str | None` (new method, mirrors the existing `get_gamertag`), `models.RealmSnapshot` and `models.TrackedPlayerStatus` dataclasses (consumed by `coordinator.py` in Task 4 and `sensor.py`/`binary_sensor.py` in Tasks 8-9), and the `tests/conftest.py` fixtures every later HA-aware test file needs (`enable_custom_integrations`).
 
-- [ ] **Step 1: Add HA test dependencies to `requirements-dev.txt`**
+- [ ] **Step 1: Verify the HA test dependencies and environment are ready**
 
-Add these two lines to the existing file (keep all current lines unchanged):
+`requirements-dev.txt` already has `homeassistant==2026.8.3` and
+`pytest-homeassistant-custom-component==0.13.357` added (plus the `aiohttp`/`aioresponses`
+version corrections these forced — see this plan's "Windows test environment" note in Global
+Constraints for the full story). This was done as one-time infrastructure setup alongside the
+three `.venv/Lib/site-packages/` stub files (`fcntl.py`, `resource.py`, `sitecustomize.py`) that
+Windows needs for Home Assistant's test harness to import and run at all. Read that Global
+Constraints note now if you haven't already — it explains what these are and why, and confirms
+they must already exist for this step to succeed.
 
-```text
-homeassistant==2026.8.3
-pytest-homeassistant-custom-component==2026.8.3
-```
-
-Run: `pip install -r requirements-dev.txt`
-This is a large install (Home Assistant core and its test harness) — expect it to take a few minutes.
+Run: `.venv/Scripts/python -m pip install -r requirements-dev.txt` (should report everything
+already satisfied — this just confirms the environment matches the file) then
+`.venv/Scripts/python -m pytest -q` and confirm all 32 existing Phase 3 tests still pass, with no
+`ModuleNotFoundError` or `HASocketBlockedError`. If either the install pulls something unexpected
+or any test fails with one of those two errors, STOP and report BLOCKED — do not attempt to
+work around it yourself (e.g. by re-pinning `aiohttp<3.14` or switching `aioresponses` back to a
+plain PyPI install) since that would silently reintroduce the exact incompatibility this setup
+fixes. Report exactly what you observed instead.
 
 - [ ] **Step 2: Create `tests/conftest.py`**
 
@@ -205,7 +268,7 @@ async def test_get_xuid_returns_none_on_404():
 
 - [ ] **Step 4: Run to verify the new tests fail**
 
-Run: `pytest tests/test_xbox_profile.py -v`
+Run: `.venv/Scripts/python -m pytest tests/test_xbox_profile.py -v`
 Expected: the two new tests FAIL with `AttributeError: 'XboxProfileClient' object has no attribute 'get_xuid'`; the two pre-existing tests still PASS.
 
 - [ ] **Step 5: Implement `get_xuid` in `custom_components/minecraft_bedrock_realms/xbox_profile.py`**
@@ -237,7 +300,7 @@ Add this method to the `XboxProfileClient` class (alongside the existing `get_ga
 
 - [ ] **Step 6: Run to verify the xbox_profile tests pass**
 
-Run: `pytest tests/test_xbox_profile.py -v`
+Run: `.venv/Scripts/python -m pytest tests/test_xbox_profile.py -v`
 Expected: 4 passed
 
 - [ ] **Step 7: Write the failing tests for the new models**
@@ -278,7 +341,7 @@ def test_tracked_player_status_fields():
 
 - [ ] **Step 8: Run to verify the new model tests fail**
 
-Run: `pytest tests/test_models.py -v`
+Run: `.venv/Scripts/python -m pytest tests/test_models.py -v`
 Expected: the two new tests FAIL with `ImportError: cannot import name 'RealmSnapshot'`; all 7 pre-existing tests still PASS.
 
 - [ ] **Step 9: Implement the new models**
@@ -312,12 +375,12 @@ class TrackedPlayerStatus:
 
 - [ ] **Step 10: Run to verify the model tests pass**
 
-Run: `pytest tests/test_models.py -v`
+Run: `.venv/Scripts/python -m pytest tests/test_models.py -v`
 Expected: 9 passed
 
 - [ ] **Step 11: Run the full suite to confirm nothing else broke**
 
-Run: `pytest -v`
+Run: `.venv/Scripts/python -m pytest -v`
 Expected: all tests pass (Phase 3's 32 plus this task's 4 new ones = 36), pristine output.
 
 - [ ] **Step 12: Commit**
@@ -548,7 +611,7 @@ async def test_expired_token_is_refreshed_and_persisted(hass: HomeAssistant):
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `pytest tests/test_coordinator.py -v`
+Run: `.venv/Scripts/python -m pytest tests/test_coordinator.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'custom_components.minecraft_bedrock_realms.coordinator'`
 
 - [ ] **Step 3: Write the implementation**
@@ -776,12 +839,12 @@ class RealmsDataUpdateCoordinator(DataUpdateCoordinator[dict[int, RealmSnapshot]
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `pytest tests/test_coordinator.py -v`
+Run: `.venv/Scripts/python -m pytest tests/test_coordinator.py -v`
 Expected: 9 passed
 
 - [ ] **Step 5: Run the full suite**
 
-Run: `pytest -v`
+Run: `.venv/Scripts/python -m pytest -v`
 Expected: 45 passed (36 from before + 9 new), pristine output.
 
 - [ ] **Step 6: Commit**
@@ -880,7 +943,7 @@ async def test_unload_entry_succeeds(hass: HomeAssistant):
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `pytest tests/test_init.py -v`
+Run: `.venv/Scripts/python -m pytest tests/test_init.py -v`
 Expected: FAIL — `async_setup_entry`/`async_unload_entry` don't exist yet (the current `__init__.py` is just a docstring), so `hass.config_entries.async_setup` returns `False`/raises, and the assertions fail.
 
 - [ ] **Step 3: Write the implementation**
@@ -970,7 +1033,7 @@ existing Phase 3 constants from `const.py` — no new constant needed for them.
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `pytest tests/test_init.py -v`
+Run: `.venv/Scripts/python -m pytest tests/test_init.py -v`
 Expected: 2 passed
 
 Note: setup will attempt real `auth.get_xbox_user_token`/`get_xsts_token` HTTP calls against the
@@ -1155,7 +1218,7 @@ async def test_device_code_login_failure_aborts_with_reason(hass: HomeAssistant)
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `pytest tests/test_config_flow.py -v`
+Run: `.venv/Scripts/python -m pytest tests/test_config_flow.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'custom_components.minecraft_bedrock_realms.config_flow'`
 
 - [ ] **Step 3: Write the implementation**
@@ -1302,12 +1365,12 @@ a `show_progress` step once its `progress_task` resolves.
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `pytest tests/test_config_flow.py -v`
+Run: `.venv/Scripts/python -m pytest tests/test_config_flow.py -v`
 Expected: 3 passed
 
 - [ ] **Step 5: Run the full suite**
 
-Run: `pytest -v`
+Run: `.venv/Scripts/python -m pytest -v`
 Expected: 50 passed, pristine.
 
 - [ ] **Step 6: Commit**
@@ -1422,7 +1485,7 @@ async def test_reauth_flow_updates_stored_token(hass: HomeAssistant):
 
 - [ ] **Step 2: Run to verify the new tests fail**
 
-Run: `pytest tests/test_config_flow.py -v -k "options_flow or reauth"`
+Run: `.venv/Scripts/python -m pytest tests/test_config_flow.py -v -k "options_flow or reauth"`
 Expected: FAIL — `hass.config_entries.options.async_init` errors because no options flow is
 registered yet, and `entry.start_reauth_flow` errors because `async_step_reauth` doesn't exist.
 
@@ -1541,12 +1604,12 @@ matching a plain HA form text field) and asserts the stored result is the parsed
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `pytest tests/test_config_flow.py -v`
+Run: `.venv/Scripts/python -m pytest tests/test_config_flow.py -v`
 Expected: 5 passed
 
 - [ ] **Step 5: Run the full suite**
 
-Run: `pytest -v`
+Run: `.venv/Scripts/python -m pytest -v`
 Expected: 52 passed, pristine.
 
 - [ ] **Step 6: Commit**
@@ -1681,7 +1744,7 @@ def test_unique_ids_are_stable_and_realm_scoped():
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `pytest tests/test_sensor.py -v`
+Run: `.venv/Scripts/python -m pytest tests/test_sensor.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'custom_components.minecraft_bedrock_realms.sensor'`
 
 - [ ] **Step 3: Write the implementation**
@@ -1847,12 +1910,12 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddE
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `pytest tests/test_sensor.py -v`
+Run: `.venv/Scripts/python -m pytest tests/test_sensor.py -v`
 Expected: 8 passed
 
 - [ ] **Step 5: Run the full suite**
 
-Run: `pytest -v`
+Run: `.venv/Scripts/python -m pytest -v`
 Expected: 60 passed, pristine.
 
 - [ ] **Step 6: Commit**
@@ -1954,7 +2017,7 @@ def test_tracked_player_binary_sensor_unique_id_is_gamertag_scoped():
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `pytest tests/test_binary_sensor.py -v`
+Run: `.venv/Scripts/python -m pytest tests/test_binary_sensor.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'custom_components.minecraft_bedrock_realms.binary_sensor'`
 
 - [ ] **Step 3: Write the implementation**
@@ -2052,12 +2115,12 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddE
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `pytest tests/test_binary_sensor.py -v`
+Run: `.venv/Scripts/python -m pytest tests/test_binary_sensor.py -v`
 Expected: 5 passed
 
 - [ ] **Step 5: Run the full suite**
 
-Run: `pytest -v`
+Run: `.venv/Scripts/python -m pytest -v`
 Expected: 65 passed, pristine.
 
 - [ ] **Step 6: Commit**
@@ -2323,7 +2386,7 @@ async def test_diagnostics_redacts_tokens_and_client_id(hass):
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `pytest tests/test_diagnostics.py -v`
+Run: `.venv/Scripts/python -m pytest tests/test_diagnostics.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'custom_components.minecraft_bedrock_realms.diagnostics'`
 
 - [ ] **Step 3: Write the implementation**
@@ -2385,20 +2448,20 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry) -> dict
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `pytest tests/test_diagnostics.py -v`
+Run: `.venv/Scripts/python -m pytest tests/test_diagnostics.py -v`
 Expected: 1 passed
 
 - [ ] **Step 5: Run the full suite**
 
-Run: `pytest -v`
+Run: `.venv/Scripts/python -m pytest -v`
 Expected: 66 passed, pristine output.
 
 - [ ] **Step 6: Run lint and type-check**
 
 Run:
 ```bash
-ruff check .
-mypy custom_components poc
+.venv/Scripts/python -m ruff check .
+.venv/Scripts/python -m mypy custom_components poc
 ```
 Fix anything ruff flags. mypy may report warnings in the new HA-integration files where Home
 Assistant's own typing is loose (e.g. `ConfigEntry` generics) — note these in your report rather
