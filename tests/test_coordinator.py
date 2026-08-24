@@ -19,7 +19,10 @@ from custom_components.minecraft_bedrock_realms.models import (
     OAuthToken,
     Realm,
     RealmActivity,
+    XboxToken,
 )
+from custom_components.minecraft_bedrock_realms.realms_api import RealmsAPI
+from custom_components.minecraft_bedrock_realms.xbox_profile import XboxProfileClient
 
 
 def _make_realm(realm_id: int = 1) -> Realm:
@@ -29,13 +32,27 @@ def _make_realm(realm_id: int = 1) -> Realm:
     )
 
 
+def _fake_xbox_token() -> XboxToken:
+    return XboxToken(
+        token="t",
+        userhash="h",
+        xuid="1",
+        gamertag="Steve",
+        not_after=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+
+
 def _make_coordinator(hass: HomeAssistant, *, realm_ids=None, tracked_gamertags=None, enable_events=True):
     entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
     entry.add_to_hass(hass)
 
     auth = AsyncMock()
-    realms_api = AsyncMock()
-    profile_client = AsyncMock()
+    # spec'd so sync methods (e.g. update_authorization) resolve to a plain
+    # MagicMock instead of AsyncMock, matching the real classes' signatures
+    # and avoiding "coroutine was never awaited" warnings from un-awaited
+    # sync calls in the coordinator.
+    realms_api = AsyncMock(spec=RealmsAPI)
+    profile_client = AsyncMock(spec=XboxProfileClient)
     token = OAuthToken(access_token="at", refresh_token="rt", expires_in=3600)
 
     coordinator = RealmsDataUpdateCoordinator(
@@ -184,8 +201,14 @@ async def test_expired_token_is_refreshed_and_persisted(hass: HomeAssistant):
     )
     new_token = OAuthToken(access_token="fresh", refresh_token="rt2", expires_in=3600)
     coordinator._auth.refresh_oauth_token = AsyncMock(return_value=new_token)
+    fake_xbox_token = _fake_xbox_token()
+    coordinator._auth.get_xbox_user_token = AsyncMock(return_value=fake_xbox_token)
+    coordinator._auth.get_xsts_token = AsyncMock(return_value=fake_xbox_token)
 
     await coordinator._async_update_data()
 
     coordinator._auth.refresh_oauth_token.assert_awaited_once()
     assert coordinator.config_entry.data.get("oauth_token", {}).get("access_token") == "fresh"
+    realms_api.update_authorization.assert_called_once_with(fake_xbox_token.authorization_header)
+    profile_client.update_authorization.assert_called_once_with(fake_xbox_token.authorization_header)
+    assert fake_xbox_token.authorization_header == "XBL3.0 x=h;t"

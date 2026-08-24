@@ -15,6 +15,8 @@ from .const import (
     DOMAIN,
     EVENT_PLAYER_JOINED,
     EVENT_PLAYER_LEFT,
+    REALMS_XSTS_RELYING_PARTY,
+    XBOX_LIVE_XSTS_RELYING_PARTY,
 )
 from .exceptions import RealmsAPIError, RealmsClientError
 from .models import OAuthToken, RealmSnapshot, TrackedPlayerStatus
@@ -134,8 +136,16 @@ class RealmsDataUpdateCoordinator(DataUpdateCoordinator[dict[int, RealmSnapshot]
             self.config_entry,
             data={**self.config_entry.data, CONF_OAUTH_TOKEN: self._oauth_token.to_dict()},
         )
-        self._realms_api.update_authorization(self._oauth_token.access_token)
-        self._profile_client.update_authorization(self._oauth_token.access_token)
+
+        try:
+            xbl_user_token = await self._auth.get_xbox_user_token(self._oauth_token)
+            realms_xsts = await self._auth.get_xsts_token(xbl_user_token, REALMS_XSTS_RELYING_PARTY)
+            xbox_live_xsts = await self._auth.get_xsts_token(xbl_user_token, XBOX_LIVE_XSTS_RELYING_PARTY)
+        except RealmsClientError as err:
+            raise ConfigEntryAuthFailed("Failed to re-derive Xbox Live tokens after refresh") from err
+
+        self._realms_api.update_authorization(realms_xsts.authorization_header)
+        self._profile_client.update_authorization(xbox_live_xsts.authorization_header)
 
     async def _resolve_gamertags(self, online_xuids: set[str]) -> dict[str, str]:
         gamertags: dict[str, str] = {}
