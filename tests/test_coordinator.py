@@ -212,3 +212,28 @@ async def test_expired_token_is_refreshed_and_persisted(hass: HomeAssistant):
     realms_api.update_authorization.assert_called_once_with(fake_xbox_token.authorization_header)
     profile_client.update_authorization.assert_called_once_with(fake_xbox_token.authorization_header)
     assert fake_xbox_token.authorization_header == "XBL3.0 x=h;t"
+
+
+async def test_live_activities_failure_does_not_corrupt_online_baseline(hass: HomeAssistant):
+    coordinator, realms_api, profile_client = _make_coordinator(hass)
+    realms_api.list_realms.return_value = [_make_realm()]
+    realms_api.get_live_activities.return_value = [RealmActivity(realm_id=1, online_xuids=["p1"])]
+    profile_client.get_gamertag.return_value = "PlayerOne"
+
+    await coordinator._async_update_data()  # baseline: p1 online
+
+    left_events = []
+    hass.bus.async_listen(EVENT_PLAYER_LEFT, lambda e: left_events.append(e.data))
+
+    realms_api.get_live_activities.side_effect = RealmsAPIError(503, "unavailable")
+    data = await coordinator._async_update_data()
+    await hass.async_block_till_done()
+
+    # a transient activities-fetch failure must not fire a spurious "left" event
+    # for players who are still actually online...
+    assert left_events == []
+    # ...and must not corrupt the coordinator's online-player bookkeeping, which
+    # would otherwise cause a spurious "joined" event on the next successful poll.
+    assert coordinator._previous_online[1] == {"p1"}
+    assert 1 in coordinator._baseline_done
+    assert data[1].error_category == "rate_limited"

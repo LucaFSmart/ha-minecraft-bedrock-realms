@@ -106,6 +106,17 @@ class RealmsDataUpdateCoordinator(DataUpdateCoordinator[dict[int, RealmSnapshot]
                 )
                 continue
 
+            if activity_error is not None:
+                previous = self.data.get(realm_id) if self.data else None
+                result[realm_id] = RealmSnapshot(
+                    realm=realm,
+                    online_gamertags=previous.online_gamertags if previous else {},
+                    last_update=previous.last_update if previous else None,
+                    available=True,
+                    error_category=activity_error,
+                )
+                continue
+
             activity = activity_by_realm.get(realm_id)
             online_xuids = set(activity.online_xuids) if activity else set()
             all_online_xuids |= online_xuids
@@ -118,7 +129,7 @@ class RealmsDataUpdateCoordinator(DataUpdateCoordinator[dict[int, RealmSnapshot]
                 online_gamertags=gamertags,
                 last_update=now,
                 available=True,
-                error_category=activity_error,
+                error_category=None,
             )
 
         await self._update_tracked_players(all_online_xuids, now)
