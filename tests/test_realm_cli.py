@@ -126,7 +126,9 @@ async def test_run_continues_when_gamertag_lookup_fails(monkeypatch, capsys):
 
 
 async def test_run_reports_when_account_has_no_realms(monkeypatch):
-    async def fake_authenticate(session: aiohttp.ClientSession) -> tuple[str, str]:
+    async def fake_authenticate(
+        session: aiohttp.ClientSession, client_id: str | None
+    ) -> tuple[str, str]:
         return "realms-auth", "xbox-auth"
 
     monkeypatch.setattr(realm_cli, "_authenticate", fake_authenticate)

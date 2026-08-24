@@ -13,8 +13,24 @@ MS_TOKEN_URL = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
 MS_OAUTH_SCOPE = "Xboxlive.signin Xboxlive.offline_access"
 
 # Known public first-party Microsoft client ID (Minecraft for Nintendo Switch).
-# Reused per prismarine-auth's default `live` flow - see docs/research.md SS1
-# for why a self-registered Azure app is not used by default.
+#
+# WARNING - unverified pairing (see docs/research.md SS1): this ID is a
+# first-party Minecraft "title" ID. It is documented to work with
+# prismarine-auth's *legacy* `login.live.com` device-code flow, which uses a
+# different scope format and a different (older) device-code protocol. This
+# project instead calls the modern Azure AD v2 endpoints above
+# (login.microsoftonline.com/consumers/oauth2/v2.0/*), matching elytra-ms.
+# Pairing a first-party title ID with the AAD v2 endpoints has not been
+# validated against a real account and is likely to fail with
+# AADSTS700016 (unauthorized_client), since AAD v2 generally expects a
+# client ID that is registered as an app in Azure AD, not a first-party
+# title ID.
+#
+# Recommended: register a free Azure AD "public client" app (no client
+# secret required for the device-code flow) and pass its client ID via
+# --client-id instead of relying on this default. This constant is kept
+# as a documented, clearly-labeled fallback for the one live verification
+# attempt in Phase 3 - not because the pairing is expected to work.
 DEFAULT_CLIENT_ID = "00000000441cc96b"
 
 # --- Xbox Live (XBL user token + XSTS token) ---

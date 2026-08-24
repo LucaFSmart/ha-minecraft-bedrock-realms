@@ -16,6 +16,7 @@ import aiohttp
 
 from custom_components.minecraft_bedrock_realms.auth import MicrosoftAuth
 from custom_components.minecraft_bedrock_realms.const import (
+    DEFAULT_CLIENT_ID,
     REALMS_XSTS_RELYING_PARTY,
     XBOX_LIVE_XSTS_RELYING_PARTY,
 )
@@ -27,9 +28,16 @@ from poc.token_cache import load_token, save_token
 _LOGGER = logging.getLogger("realm_cli")
 
 
-async def _authenticate(session: aiohttp.ClientSession) -> tuple[str, str]:
+async def _authenticate(session: aiohttp.ClientSession, client_id: str | None) -> tuple[str, str]:
     """Runs (or resumes) the auth chain. Returns (realms_auth_header, xbox_live_auth_header)."""
-    auth = MicrosoftAuth(session)
+    if client_id is None:
+        print(
+            "Warning: using the default first-party client ID, which is unverified against "
+            "this project's OAuth endpoints. If sign-in fails, register a free Azure AD app "
+            "and pass --client-id (see docs/research.md).",
+            file=sys.stderr,
+        )
+    auth = MicrosoftAuth(session, client_id=client_id or DEFAULT_CLIENT_ID)
 
     oauth_token = load_token()
     if oauth_token is not None and not oauth_token.is_valid():
@@ -56,10 +64,10 @@ async def _authenticate(session: aiohttp.ClientSession) -> tuple[str, str]:
     return realms_xsts.authorization_header, xbox_live_xsts.authorization_header
 
 
-async def _run(realm_name_filter: str | None) -> int:
+async def _run(realm_name_filter: str | None, *, client_id: str | None = None) -> int:
     async with aiohttp.ClientSession() as session:
         try:
-            realms_auth_header, xbox_auth_header = await _authenticate(session)
+            realms_auth_header, xbox_auth_header = await _authenticate(session, client_id)
         except RealmsClientError as err:
             print(f"Authentication failed: {err}", file=sys.stderr)
             return 1
@@ -128,6 +136,16 @@ def main() -> None:
         help="Only show Realms whose name contains this text (case-insensitive)",
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    parser.add_argument(
+        "--client-id",
+        dest="client_id",
+        default=None,
+        help=(
+            "Azure AD public-client app ID to use for sign-in. If omitted, falls back to a "
+            "first-party Minecraft client ID that is unverified against this project's OAuth "
+            "endpoints (see docs/research.md)."
+        ),
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -135,7 +153,7 @@ def main() -> None:
         format="%(levelname)s %(name)s: %(message)s",
     )
 
-    exit_code = asyncio.run(_run(args.realm_name_filter))
+    exit_code = asyncio.run(_run(args.realm_name_filter, client_id=args.client_id))
     sys.exit(exit_code)
 
 
