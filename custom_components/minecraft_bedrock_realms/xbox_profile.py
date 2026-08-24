@@ -55,3 +55,27 @@ class XboxProfileClient:
         except (KeyError, IndexError, StopIteration):
             _LOGGER.debug("Profile response for XUID %s had no Gamertag setting", xuid)
             return None
+
+    async def get_xuid(self, gamertag: str) -> str | None:
+        url = f"https://profile.xboxlive.com/users/gt({gamertag})/profile/settings?settings=Gamertag"
+        headers = {
+            "Authorization": self._authorization_header,
+            "x-xbl-contract-version": XBOX_PROFILE_CONTRACT_VERSION,
+            "Accept": "application/json",
+        }
+        try:
+            async with self._session.get(url, headers=headers, timeout=_TIMEOUT) as resp:
+                if resp.status == 404:
+                    return None
+                if resp.status >= 400:
+                    text = await resp.text()
+                    raise RealmsAPIError(resp.status, text)
+                data = await resp.json(content_type=None)
+        except (aiohttp.ClientError, TimeoutError) as err:
+            raise RealmsAPIError(0, f"Network error: {err}") from err
+
+        try:
+            return str(data["profileUsers"][0]["id"])
+        except (KeyError, IndexError):
+            _LOGGER.debug("Profile response for gamertag %s had no id", gamertag)
+            return None

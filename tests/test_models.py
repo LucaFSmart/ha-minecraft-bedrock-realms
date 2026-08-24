@@ -105,3 +105,32 @@ def test_realm_activity_filters_to_online_players_only():
     activity = RealmActivity.from_api(data)
     assert activity.realm_id == 1112223
     assert activity.online_xuids == ["111"]
+
+
+def test_realm_snapshot_defaults():
+    from custom_components.minecraft_bedrock_realms.models import Realm, RealmSnapshot
+
+    realm = Realm(
+        id=1, name="Test", owner="X", owner_xuid="1", state="OPEN",
+        max_players=10, active_slot=1, member=True,
+    )
+    snapshot = RealmSnapshot(realm=realm)
+
+    assert snapshot.online_gamertags == {}
+    assert snapshot.available is True
+    assert snapshot.error_category is None
+    assert snapshot.last_update is None
+
+
+def test_tracked_player_status_fields():
+    from datetime import datetime, timezone
+
+    from custom_components.minecraft_bedrock_realms.models import TrackedPlayerStatus
+
+    now = datetime.now(timezone.utc)
+    status = TrackedPlayerStatus(
+        gamertag="SteveGT", xuid="123", online=True, last_seen=now, joined_at=now,
+    )
+
+    assert status.gamertag == "SteveGT"
+    assert status.online is True

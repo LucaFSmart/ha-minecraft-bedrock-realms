@@ -179,3 +179,25 @@ class RealmActivity:
     def from_api(cls, data: dict[str, Any]) -> RealmActivity:
         online = [p["uuid"] for p in (data.get("players") or []) if p.get("online")]
         return cls(realm_id=int(data["id"]), online_xuids=online)
+
+
+@dataclass(slots=True)
+class RealmSnapshot:
+    """One coordinator refresh's result for a single tracked Realm."""
+
+    realm: Realm | None
+    online_gamertags: dict[str, str] = field(default_factory=dict)  # xuid -> gamertag
+    last_update: datetime | None = None
+    available: bool = True
+    error_category: str | None = None  # "auth" | "rate_limit" | "network" | "not_found" | None
+
+
+@dataclass(slots=True)
+class TrackedPlayerStatus:
+    """Online status of one user-configured tracked gamertag."""
+
+    gamertag: str
+    xuid: str | None
+    online: bool
+    last_seen: datetime | None = None
+    joined_at: datetime | None = None

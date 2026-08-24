@@ -34,3 +34,29 @@ async def test_get_gamertag_returns_none_on_404():
             gamertag = await client.get_gamertag("999")
 
     assert gamertag is None
+
+
+async def test_get_xuid_parses_profile_users_id():
+    with aioresponses() as mocked:
+        mocked.get(
+            "https://profile.xboxlive.com/users/gt(SteveGT)/profile/settings?settings=Gamertag",
+            payload={"profileUsers": [{"id": "123456", "settings": []}]},
+        )
+        async with aiohttp.ClientSession() as session:
+            client = XboxProfileClient(session, _AUTH)
+            xuid = await client.get_xuid("SteveGT")
+
+    assert xuid == "123456"
+
+
+async def test_get_xuid_returns_none_on_404():
+    with aioresponses() as mocked:
+        mocked.get(
+            "https://profile.xboxlive.com/users/gt(NoSuchGamertag)/profile/settings?settings=Gamertag",
+            status=404,
+        )
+        async with aiohttp.ClientSession() as session:
+            client = XboxProfileClient(session, _AUTH)
+            xuid = await client.get_xuid("NoSuchGamertag")
+
+    assert xuid is None
