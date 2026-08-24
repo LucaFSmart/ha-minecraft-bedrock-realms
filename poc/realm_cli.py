@@ -96,7 +96,10 @@ async def _run(realm_name_filter: str | None) -> int:
 
             gamertags: list[str] = []
             for xuid in online_xuids:
-                gamertag = await profile_client.get_gamertag(xuid)
+                try:
+                    gamertag = await profile_client.get_gamertag(xuid)
+                except RealmsClientError:
+                    gamertag = None
                 gamertags.append(gamertag or f"(unknown XUID {xuid})")
 
             print()
