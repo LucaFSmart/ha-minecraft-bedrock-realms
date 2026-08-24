@@ -237,3 +237,21 @@ async def test_live_activities_failure_does_not_corrupt_online_baseline(hass: Ho
     assert coordinator._previous_online[1] == {"p1"}
     assert 1 in coordinator._baseline_done
     assert data[1].error_category == "rate_limited"
+
+
+async def test_tracked_player_status_unchanged_on_activities_failure(hass: HomeAssistant):
+    coordinator, realms_api, profile_client = _make_coordinator(hass, tracked_gamertags=["PlayerOne"])
+    realms_api.list_realms.return_value = [_make_realm()]
+    profile_client.get_gamertag.return_value = "PlayerOne"
+    profile_client.get_xuid.return_value = "p1"
+
+    realms_api.get_live_activities.return_value = [RealmActivity(realm_id=1, online_xuids=["p1"])]
+    await coordinator._async_update_data()  # baseline: PlayerOne online
+
+    assert coordinator.tracked_player_status["PlayerOne"].online is True
+
+    realms_api.get_live_activities.side_effect = RealmsAPIError(503, "temporarily unavailable")
+    await coordinator._async_update_data()
+
+    # tracked player status must be untouched by the failed poll, not reset to offline
+    assert coordinator.tracked_player_status["PlayerOne"].online is True

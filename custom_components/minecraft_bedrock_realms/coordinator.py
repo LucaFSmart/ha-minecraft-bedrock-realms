@@ -132,7 +132,8 @@ class RealmsDataUpdateCoordinator(DataUpdateCoordinator[dict[int, RealmSnapshot]
                 error_category=None,
             )
 
-        await self._update_tracked_players(all_online_xuids, now)
+        if activity_error is None:
+            await self._update_tracked_players(all_online_xuids, now)
         return result
 
     async def _ensure_token_valid(self) -> None:
