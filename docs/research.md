@@ -50,7 +50,7 @@ headers, and payloads is strong confirmation this is accurate and stable:
 **No Microsoft password ever needs to be stored or seen by the integration** — device code auth
 is a public-client flow; the user authenticates in their own browser on any device.
 
-### Client ID / "title" registration (UNCERTAIN — needs Phase 3 validation)
+### Client ID / "title" registration (RESOLVED during Phase 3 — see below)
 
 Xbox Live gates some auth flows to a recognized "title" (an approved Minecraft/Xbox client). Two
 approaches are used in the wild:
@@ -58,21 +58,57 @@ approaches are used in the wild:
 - **Reuse a known public Microsoft first-party client ID.** `prismarine-auth`'s default `live`
   flow ships several of these in `Titles.js` (e.g. `MinecraftNintendoSwitch:
   '00000000441cc96b'`) and its README states plainly: *"If flow is live, the default, then you
-  can only specify existing Microsoft client IDs."* This is what most community Minecraft tooling
-  (mineflayer bots, etc.) relies on. Zero setup for the end user, but it's an unofficial reuse of
-  someone else's registered application.
+  can only specify existing Microsoft client IDs."* Critically, this only works against the
+  **legacy `login.live.com` endpoints** that `prismarine-auth`'s `live` flow actually calls — not
+  against the modern Azure AD v2 endpoints (`login.microsoftonline.com/consumers/oauth2/v2.0/*`)
+  this project uses.
 - **Register your own Azure AD "public client" app** (free, no client secret needed for device
-  code) and use `elytra-ms`'s more standard OAuth flow (`msal`-equivalent — no title/device-token
-  dance). RealmsPlayerlistBot does this (`XBOX_CLIENT_ID` env var).
+  code) and use the modern AAD v2 endpoints — this is what `elytra-ms`/RealmsPlayerlistBot
+  actually do (`XBOX_CLIENT_ID` env var, a self-registered app, per elytra-ms's own README setup
+  instructions, fetched directly from source during Phase 3: *"Register a new application in
+  Azure AD... Select 'Personal Microsoft accounts only' under supported account types."*).
 
-**Not yet confirmed**: whether a self-registered Azure app (not a first-party Minecraft title) is
-reliably accepted end-to-end through to the Realms API, or whether some Realms endpoints
-implicitly require title authentication. `prismarine-auth`'s own README hints the `live` flow
-specifically needs a known title ID; the `msal`/plain-OAuth path is documented mainly for the
-Java-token / general Xbox API path in these libraries. **Action for Phase 3**: test both against
-the user's real account and pick whichever proves reliable; fall back to a recognizable, clearly
-disclosed first-party title ID if a self-registered app doesn't work, and document the tradeoff
-in the README.
+**CONFIRMED during Phase 3 (live test against the developer's real account):** pairing the AAD v2
+endpoints with the first-party `MinecraftNintendoSwitch` title ID fails immediately with
+`AADSTS700016: Application with identifier '00000000441cc96b' was not found in the directory` —
+the two approaches above are mutually exclusive protocol families, not interchangeable options,
+and this project's `const.py` had accidentally mixed them (AAD v2 URLs + a first-party title ID).
+This was found by the project's own code-review process before the live test even confirmed it,
+and fixed by making the mismatch explicit rather than silently guessing:
+`custom_components/minecraft_bedrock_realms/const.py`'s `DEFAULT_CLIENT_ID` comment now documents
+the incompatibility, and `poc/realm_cli.py` gained a `--client-id` flag so a self-registered app ID
+can be supplied instead of the (non-working, for this endpoint family) default.
+
+**Registration recipe, cross-checked against elytra-ms's own README and official Microsoft Learn
+troubleshooting docs (fetched directly, not from memory) — this is the exact, minimal, working
+recipe for the Bedrock Realms use case specifically:**
+
+1. https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade → *New
+   registration*.
+2. Any name. **Supported account types: "Personal Microsoft accounts only."**
+3. No redirect URI is needed — this project's device-code flow never redirects. (elytra-ms's own
+   README asks for one, but only because its bundled `elytra-authenticate` quickstart script uses
+   a different, redirect-based flow for convenience; this project's `auth.py` implements pure
+   device-code and doesn't need it.)
+4. **Authentication → Advanced settings → "Allow public client flows" → Yes.** This step is not
+   optional: Microsoft's own troubleshooting documentation for error `AADSTS7000218` states
+   device-code flow "is not using a redirect URI" so Entra ID "uses the app registration's
+   ['Enable the following mobile and desktop flows'] to determine whether the client is
+   confidential or public" — device code requests fail with `AADSTS7000218` until this is set.
+5. No client secret is needed (this project's code never sends one). Copy the **Application
+   (client) ID** from the Overview page and pass it via `poc/realm_cli.py --client-id`.
+
+**Also confirmed — no Xbox Developer Program / Partner Center approval is needed for this use
+case**, resolving an apparent contradiction found during research: one Microsoft Q&A community
+answer claims `XboxLive.signin` requires formal Xbox Developer Program enrollment, but that
+answer was about the **Java Edition** `api.minecraftservices.com` API specifically, which
+separately requires app approval via `https://aka.ms/mce-reviewappid` (confirmed via
+minecraft.wiki's Microsoft-authentication article: *"api.minecraftservices.com will return a 403"*
+without it). **The Bedrock Realms API (`pocket.realms.minecraft.net`) has no equivalent gate** —
+confirmed by elytra-ms's README describing plain self-service Azure AD registration with no
+approval step, and by RealmsPlayerlistBot (built on exactly that recipe) having authenticated to
+`pocket.realms.minecraft.net` in continuous production use since 2020 without any such approval.
+This project is Bedrock-only and therefore unaffected by the Java-specific approval gate.
 
 ### Token persistence (CONFIRMED pattern)
 
