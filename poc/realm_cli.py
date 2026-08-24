@@ -28,14 +28,8 @@ from poc.token_cache import load_token, save_token
 
 async def _authenticate(session: aiohttp.ClientSession, client_id: str | None) -> tuple[str, str]:
     """Runs (or resumes) the auth chain. Returns (realms_auth_header, xbox_live_auth_header)."""
-    if client_id is None:
-        print(
-            "Warning: using the default first-party client ID, which is unverified against "
-            "this project's OAuth endpoints. If sign-in fails, register a free Azure AD app "
-            "and pass --client-id (see docs/research.md).",
-            file=sys.stderr,
-        )
-    auth = MicrosoftAuth(session, client_id=client_id or DEFAULT_CLIENT_ID)
+    effective_client_id = client_id or DEFAULT_CLIENT_ID
+    auth = MicrosoftAuth(session, client_id=effective_client_id)
 
     oauth_token = load_token()
     if oauth_token is not None and not oauth_token.is_valid():
@@ -46,6 +40,13 @@ async def _authenticate(session: aiohttp.ClientSession, client_id: str | None) -
             oauth_token = None
 
     if oauth_token is None:
+        if not client_id:
+            print(
+                "Warning: using the default first-party client ID, which is unverified against "
+                "this project's OAuth endpoints. If sign-in fails, register a free Azure AD app "
+                "and pass --client-id (see docs/research.md).",
+                file=sys.stderr,
+            )
         device_code = await auth.request_device_code()
         print(device_code.message)
         print(f"Waiting for you to sign in (expires in {device_code.expires_in}s)...")
