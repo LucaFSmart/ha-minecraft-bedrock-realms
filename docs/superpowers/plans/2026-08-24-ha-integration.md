@@ -1141,13 +1141,10 @@ async def test_full_happy_path_creates_entry(hass: HomeAssistant):
         assert result["step_id"] == "user"
 
         result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
-        assert result["type"] == "show_progress"
+        assert result["type"] == "progress"
         assert result["step_id"] == "device_code"
 
         await hass.async_block_till_done()
-        result = await hass.config_entries.flow.async_configure(result["flow_id"])
-        assert result["type"] == "show_progress_done"
-
         result = await hass.config_entries.flow.async_configure(result["flow_id"])
         assert result["type"] == "form"
         assert result["step_id"] == "select_realms"
@@ -1194,7 +1191,6 @@ async def test_zero_realms_shows_error(hass: HomeAssistant):
         )
         result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
         await hass.async_block_till_done()
-        result = await hass.config_entries.flow.async_configure(result["flow_id"])
         result = await hass.config_entries.flow.async_configure(result["flow_id"])
 
     assert result["type"] == "abort"
@@ -1298,8 +1294,16 @@ class MinecraftBedrockRealmsConfigFlow(ConfigFlow, domain=DOMAIN):
         assert self._device_code_info is not None
 
         if self._device_code_task is None:
+            # eager_start=False is required: HomeAssistant.async_create_task defaults to
+            # eager_start=True, which runs the coroutine synchronously up to its first real
+            # suspension point at creation time. A mocked poll_for_token (or, in production, a
+            # call that happens to return before the caller re-checks .done()) would then already
+            # be finished by the time we check it below, and this step would never actually
+            # return async_show_progress - it would fall straight through to the final result
+            # inside this single call, which is not how the "show progress in the UI, then
+            # advance" flow is supposed to work.
             self._device_code_task = self.hass.async_create_task(
-                self._auth.poll_for_token(self._device_code_info)
+                self._auth.poll_for_token(self._device_code_info), eager_start=False
             )
 
         if not self._device_code_task.done():
@@ -1370,10 +1374,18 @@ class MinecraftBedrockRealmsConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 ```
 
-Note: the test drives `async_step_device_code` a second time after `await
-hass.async_block_till_done()` to let the mocked `poll_for_token` coroutine actually complete
-before checking `self._device_code_task.done()` — this mirrors how the real HA frontend re-enters
-a `show_progress` step once its `progress_task` resolves.
+Note on test/HA-version specifics (found and verified during implementation, not guessed):
+- `FlowResultType.SHOW_PROGRESS`/`SHOW_PROGRESS_DONE` serialize to the strings `"progress"`/
+  `"progress_done"` in this Home Assistant version, not `"show_progress"`/`"show_progress_done"`
+  — the test's literal assertions must use the actual values.
+- `FlowManager.async_configure`'s public method internally loops and never returns a
+  `SHOW_PROGRESS_DONE` result to the caller — it auto-chases straight through to whatever the
+  `next_step_id` step returns. So there is no separate "observe progress_done" call: the single
+  `async_configure(flow_id)` call made after `await hass.async_block_till_done()` (which lets the
+  `eager_start=False` task actually run and lets HA's own progress-task-done callback re-enter the
+  step) lands directly on the flow's real next result (the `select_realms` form, the `abort`, etc).
+  Do not add an intermediate call/assertion expecting to observe `"progress_done"` as a stopping
+  point — it isn't one.
 
 - [ ] **Step 4: Run to verify it passes**
 
@@ -1546,8 +1558,10 @@ Add this method to `MinecraftBedrockRealmsConfigFlow` (alongside the Task 6 meth
         assert self._device_code_info is not None
 
         if self._device_code_task is None:
+            # eager_start=False - see the identical comment in async_step_device_code above;
+            # same reason applies here.
             self._device_code_task = self.hass.async_create_task(
-                self._auth.poll_for_token(self._device_code_info)
+                self._auth.poll_for_token(self._device_code_info), eager_start=False
             )
 
         if not self._device_code_task.done():
