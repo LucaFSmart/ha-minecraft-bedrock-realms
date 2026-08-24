@@ -38,13 +38,16 @@ class XboxProfileClient:
             "x-xbl-contract-version": XBOX_PROFILE_CONTRACT_VERSION,
             "Accept": "application/json",
         }
-        async with self._session.get(url, headers=headers, timeout=_TIMEOUT) as resp:
-            if resp.status == 404:
-                return None
-            if resp.status >= 400:
-                text = await resp.text()
-                raise RealmsAPIError(resp.status, text)
-            data = await resp.json(content_type=None)
+        try:
+            async with self._session.get(url, headers=headers, timeout=_TIMEOUT) as resp:
+                if resp.status == 404:
+                    return None
+                if resp.status >= 400:
+                    text = await resp.text()
+                    raise RealmsAPIError(resp.status, text)
+                data = await resp.json(content_type=None)
+        except (aiohttp.ClientError, TimeoutError) as err:
+            raise RealmsAPIError(0, f"Network error: {err}") from err
 
         try:
             settings = data["profileUsers"][0]["settings"]

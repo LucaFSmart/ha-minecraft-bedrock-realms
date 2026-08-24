@@ -100,7 +100,7 @@ class RealmsAPI:
                     if resp.content_length == 0:
                         return {}
                     return await resp.json(content_type=None)
-            except aiohttp.ClientError as err:
+            except (aiohttp.ClientError, TimeoutError) as err:
                 last_error = err
                 if attempt == self._max_attempts:
                     raise RealmsAPIError(0, f"Network error: {err}") from err

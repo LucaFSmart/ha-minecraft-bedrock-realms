@@ -39,16 +39,21 @@ class MicrosoftAuth:
         self._client_id = client_id
 
     async def request_device_code(self) -> DeviceCodeInfo:
-        async with self._session.post(
-            MS_DEVICE_CODE_URL,
-            data={"client_id": self._client_id, "scope": MS_OAUTH_SCOPE},
-            timeout=_TIMEOUT,
-        ) as resp:
-            data = await resp.json(content_type=None)
-            if resp.status != 200:
-                raise AuthenticationError(f"Failed to request device code: HTTP {resp.status}")
-            _LOGGER.debug("Received device code (expires_in=%s)", data.get("expires_in"))
-            return DeviceCodeInfo.from_response(data)
+        try:
+            async with self._session.post(
+                MS_DEVICE_CODE_URL,
+                data={"client_id": self._client_id, "scope": MS_OAUTH_SCOPE},
+                timeout=_TIMEOUT,
+            ) as resp:
+                data = await resp.json(content_type=None)
+                if resp.status != 200:
+                    raise AuthenticationError(
+                        f"Failed to request device code: HTTP {resp.status}"
+                    )
+        except (aiohttp.ClientError, TimeoutError) as err:
+            raise AuthenticationError(f"Network error: {err}") from err
+        _LOGGER.debug("Received device code (expires_in=%s)", data.get("expires_in"))
+        return DeviceCodeInfo.from_response(data)
 
     async def poll_for_token(self, device_code_info: DeviceCodeInfo) -> OAuthToken:
         import asyncio
@@ -59,16 +64,19 @@ class MicrosoftAuth:
             if datetime.now(timezone.utc) > device_code_info.expires_at:
                 raise DeviceCodeExpiredError("Device code expired before login completed")
 
-            async with self._session.post(
-                MS_TOKEN_URL,
-                data={
-                    "client_id": self._client_id,
-                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-                    "device_code": device_code_info.device_code,
-                },
-                timeout=_TIMEOUT,
-            ) as resp:
-                data = await resp.json(content_type=None)
+            try:
+                async with self._session.post(
+                    MS_TOKEN_URL,
+                    data={
+                        "client_id": self._client_id,
+                        "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                        "device_code": device_code_info.device_code,
+                    },
+                    timeout=_TIMEOUT,
+                ) as resp:
+                    data = await resp.json(content_type=None)
+            except (aiohttp.ClientError, TimeoutError) as err:
+                raise AuthenticationError(f"Network error: {err}") from err
 
             error = data.get("error")
             if error is None:
@@ -84,21 +92,26 @@ class MicrosoftAuth:
             raise AuthenticationError(f"Unexpected device code error: {error}")
 
     async def refresh_oauth_token(self, token: OAuthToken) -> OAuthToken:
-        async with self._session.post(
-            MS_TOKEN_URL,
-            data={
-                "client_id": self._client_id,
-                "grant_type": "refresh_token",
-                "refresh_token": token.refresh_token,
-                "scope": MS_OAUTH_SCOPE,
-            },
-            timeout=_TIMEOUT,
-        ) as resp:
-            data = await resp.json(content_type=None)
-            if resp.status != 200:
-                raise AuthenticationError(f"Failed to refresh Microsoft token: HTTP {resp.status}")
-            _LOGGER.debug("Refreshed Microsoft OAuth token")
-            return OAuthToken.from_response(data)
+        try:
+            async with self._session.post(
+                MS_TOKEN_URL,
+                data={
+                    "client_id": self._client_id,
+                    "grant_type": "refresh_token",
+                    "refresh_token": token.refresh_token,
+                    "scope": MS_OAUTH_SCOPE,
+                },
+                timeout=_TIMEOUT,
+            ) as resp:
+                data = await resp.json(content_type=None)
+                if resp.status != 200:
+                    raise AuthenticationError(
+                        f"Failed to refresh Microsoft token: HTTP {resp.status}"
+                    )
+        except (aiohttp.ClientError, TimeoutError) as err:
+            raise AuthenticationError(f"Network error: {err}") from err
+        _LOGGER.debug("Refreshed Microsoft OAuth token")
+        return OAuthToken.from_response(data)
 
     async def get_xbox_user_token(self, oauth_token: OAuthToken) -> XboxToken:
         return await self._xbl_authenticate(
@@ -119,19 +132,22 @@ class MicrosoftAuth:
         )
 
     async def _xbl_authenticate(self, *, relying_party: str, url: str, properties: dict) -> XboxToken:
-        async with self._session.post(
-            url,
-            json={
-                "RelyingParty": relying_party,
-                "TokenType": "JWT",
-                "Properties": properties,
-            },
-            headers={"x-xbl-contract-version": "1"},
-            timeout=_TIMEOUT,
-        ) as resp:
-            data = await resp.json(content_type=None)
-            if resp.status == 401:
-                raise XboxLiveError.from_response(data)
-            if resp.status not in (200, 201):
-                raise AuthenticationError(f"Xbox Live auth failed: HTTP {resp.status}")
-            return XboxToken.from_response(data)
+        try:
+            async with self._session.post(
+                url,
+                json={
+                    "RelyingParty": relying_party,
+                    "TokenType": "JWT",
+                    "Properties": properties,
+                },
+                headers={"x-xbl-contract-version": "1"},
+                timeout=_TIMEOUT,
+            ) as resp:
+                data = await resp.json(content_type=None)
+                if resp.status == 401:
+                    raise XboxLiveError.from_response(data)
+                if resp.status not in (200, 201):
+                    raise AuthenticationError(f"Xbox Live auth failed: HTTP {resp.status}")
+                return XboxToken.from_response(data)
+        except (aiohttp.ClientError, TimeoutError) as err:
+            raise AuthenticationError(f"Network error: {err}") from err
