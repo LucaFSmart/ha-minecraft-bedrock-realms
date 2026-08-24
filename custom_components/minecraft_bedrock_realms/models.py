@@ -35,7 +35,7 @@ class DeviceCodeInfo:
         return self.requested_at + timedelta(seconds=self.expires_in)
 
     @classmethod
-    def from_response(cls, data: dict[str, Any]) -> "DeviceCodeInfo":
+    def from_response(cls, data: dict[str, Any]) -> DeviceCodeInfo:
         verification_uri = data.get("verification_uri") or data.get("verification_url", "")
         message = data.get(
             "message",
@@ -66,7 +66,7 @@ class OAuthToken:
         return _utcnow() < (self.expires_at - timedelta(seconds=margin_seconds))
 
     @classmethod
-    def from_response(cls, data: dict[str, Any]) -> "OAuthToken":
+    def from_response(cls, data: dict[str, Any]) -> OAuthToken:
         return cls(
             access_token=data["access_token"],
             refresh_token=data["refresh_token"],
@@ -82,7 +82,7 @@ class OAuthToken:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "OAuthToken":
+    def from_dict(cls, data: dict[str, Any]) -> OAuthToken:
         return cls(
             access_token=data["access_token"],
             refresh_token=data["refresh_token"],
@@ -107,7 +107,7 @@ class XboxToken:
         return f"XBL3.0 x={self.userhash};{self.token}"
 
     @classmethod
-    def from_response(cls, data: dict[str, Any]) -> "XboxToken":
+    def from_response(cls, data: dict[str, Any]) -> XboxToken:
         claims = data["DisplayClaims"]["xui"][0]
         return cls(
             token=data["Token"],
@@ -143,7 +143,7 @@ class Realm:
     players: list[RealmPlayer] = field(default_factory=list)
 
     @classmethod
-    def from_api(cls, data: dict[str, Any]) -> "Realm":
+    def from_api(cls, data: dict[str, Any]) -> Realm:
         players = [
             RealmPlayer(
                 xuid=p["uuid"],
@@ -176,6 +176,6 @@ class RealmActivity:
     online_xuids: list[str]
 
     @classmethod
-    def from_api(cls, data: dict[str, Any]) -> "RealmActivity":
+    def from_api(cls, data: dict[str, Any]) -> RealmActivity:
         online = [p["uuid"] for p in (data.get("players") or []) if p.get("online")]
         return cls(realm_id=int(data["id"]), online_xuids=online)

@@ -40,7 +40,7 @@ class XboxLiveError(AuthenticationError):
         super().__init__(message)
 
     @classmethod
-    def from_response(cls, data: dict[str, Any]) -> "XboxLiveError":
+    def from_response(cls, data: dict[str, Any]) -> XboxLiveError:
         raw_xerr = data.get("XErr")
         xerr = int(raw_xerr) if raw_xerr is not None else None
         known_message = _XBOX_LIVE_ERROR_MESSAGES.get(xerr) if xerr is not None else None
